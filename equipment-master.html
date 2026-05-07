@@ -117,8 +117,8 @@
     <div class="modal-title">Confirm Delete</div>
     <div class="modal-msg" id="modal-msg">Are you sure you want to delete this record?</div>
     <div class="modal-actions">
-      <button class="btn-confirm" onclick="confirmDelete()">Delete</button>
-      <button class="btn-cancel2" onclick="closeModal()">Cancel</button>
+      <button class="btn-confirm" id="btn-confirm">Delete</button>
+      <button class="btn-cancel2" id="btn-cancel-modal">Cancel</button>
     </div>
   </div>
 </div>
@@ -309,7 +309,7 @@ function fdate(d) {
 
 window.showModal = function(msg,cb) { document.getElementById('modal-msg').textContent=msg; pendingDelete=cb; document.getElementById('modal').classList.add('show'); };
 window.closeModal = function() { document.getElementById('modal').classList.remove('show'); pendingDelete=null; };
-window.confirmDelete = function() { closeModal(); if(pendingDelete) pendingDelete(); };
+window.confirmDelete = function() { window.closeModal(); if(pendingDelete) pendingDelete(); };
 
 // ── EQUIPMENT ─────────────────────────────────────────────────
 window.renderEquip = function() {
@@ -490,7 +490,6 @@ window.deleteStatus = function(i) {
   const s=statusData[i];
   showModal(`Delete status record for "${s.num}"? This cannot be undone.`, async()=>{
     try {
-      // StatusLog uses num as document ID
       const docId = s.id || s.num;
       await deleteDoc(doc(db,'statusLog', docId));
       statusData.splice(i,1);
@@ -498,6 +497,17 @@ window.deleteStatus = function(i) {
     } catch(err){ console.error('Delete status error:',err); toast('Error: '+err.message,true); }
   });
 };
+
+// Wire up modal buttons via event listeners (required for module scripts)
+document.getElementById('btn-confirm').addEventListener('click', () => {
+  document.getElementById('modal').classList.remove('show');
+  if(pendingDelete) pendingDelete();
+  pendingDelete = null;
+});
+document.getElementById('btn-cancel-modal').addEventListener('click', () => {
+  document.getElementById('modal').classList.remove('show');
+  pendingDelete = null;
+});
 </script>
 </body>
 </html>
