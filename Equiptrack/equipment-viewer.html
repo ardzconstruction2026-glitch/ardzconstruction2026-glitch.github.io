@@ -92,6 +92,31 @@
   #toast.show{opacity:1;transform:translateY(0);}
   #toast.err{border-left-color:var(--danger);}
   @media(max-width:600px){header{padding:0 1rem;}.tb{padding:12px 14px;font-size:.8rem;}.tc{padding:1rem;}.srow{grid-template-columns:1fr 1fr;}}
+
+  /* DETAIL MODAL */
+  .dmodal-bg{display:none;position:fixed;inset:0;background:rgba(13,15,20,.85);z-index:300;align-items:center;justify-content:center;padding:1rem;}
+  .dmodal-bg.show{display:flex;}
+  .dmodal{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+    padding:2rem;max-width:480px;width:100%;max-height:80vh;overflow-y:auto;}
+  .dmodal-title{font-family:var(--fh);font-size:1.2rem;font-weight:700;letter-spacing:2px;
+    text-transform:uppercase;color:var(--accent3);margin-bottom:1.5rem;padding-bottom:.75rem;
+    border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+  .dmodal-close{font-family:var(--fm);font-size:.8rem;color:var(--muted);cursor:pointer;
+    background:transparent;border:1px solid var(--border);padding:4px 10px;border-radius:4px;
+    transition:all .2s;text-transform:uppercase;letter-spacing:1px;}
+  .dmodal-close:hover{border-color:var(--danger);color:var(--danger);}
+  .dinfo-row{display:flex;justify-content:space-between;align-items:center;padding:.6rem 0;
+    border-bottom:1px solid rgba(42,47,63,.4);}
+  .dinfo-row:last-child{border-bottom:none;}
+  .dinfo-label{font-family:var(--fm);font-size:.7rem;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);}
+  .dinfo-val{font-family:var(--fb);font-size:.9rem;color:var(--text);}
+  .dhistory-title{font-family:var(--fh);font-size:.9rem;font-weight:700;letter-spacing:2px;
+    text-transform:uppercase;color:var(--accent);margin:1.2rem 0 .75rem;}
+  .history-item{display:flex;justify-content:space-between;align-items:center;
+    padding:.5rem .75rem;background:var(--surface2);border-radius:4px;margin-bottom:.4rem;}
+  .history-date{font-family:var(--fm);font-size:.72rem;color:var(--muted);}
+  tr.clickable{cursor:pointer;}
+  tr.clickable:hover td{background:rgba(0,255,157,.04);}
 </style>
 </head>
 <body>
@@ -211,6 +236,17 @@
 
 <div id="toast"></div>
 
+<!-- DETAIL MODAL -->
+<div class="dmodal-bg" id="detail-modal">
+  <div class="dmodal">
+    <div class="dmodal-title">
+      <span id="dm-title">Equipment Details</span>
+      <button class="dmodal-close" id="dm-close">✕ Close</button>
+    </div>
+    <div id="dm-content"></div>
+  </div>
+</div>
+
 <script type="module">
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged }
@@ -293,6 +329,8 @@ window.refreshAll = async function() {
     equipData  = eSnap.docs.map(d => ({id:d.id,...d.data()}));
     borrowData = bSnap.docs.map(d => ({id:d.id,...d.data()}));
     statusData = sSnap.docs.map(d => ({id:d.id,...d.data()}));
+    // Sort all status entries by date
+    statusData.sort((a,b) => new Date(a.date) - new Date(b.date));
     equipMap   = {};
     equipData.forEach(e => { equipMap[e.num] = e; });
     populateTypeFilter();
@@ -305,7 +343,7 @@ function updateStats() {
   document.getElementById('s-total').textContent = equipData.length;
   document.getElementById('s-out').textContent   = borrowData.filter(b => b.returned!==true && b.returned!=='Yes').length;
   const latest = {};
-  statusData.forEach(s => { latest[s.num] = s.status; });
+  statusData.forEach(s => { latest[s.num] = s.status; }); // sorted asc, last wins = latest
   const vals = Object.values(latest);
   document.getElementById('s-good').textContent = vals.filter(x => x==='Good').length;
   document.getElementById('s-dmg').textContent  = vals.filter(x => x==='Damaged'||x==='Under Repair').length;
@@ -392,10 +430,15 @@ window.renderBorrow = function() {
 window.renderStatus = function() {
   const q = document.getElementById('st-s').value.toLowerCase();
   const f = document.getElementById('st-f').value;
-  let d = statusData.filter(s=>{
-    const eq=equipMap[s.num]||{};
-    return [s.num,eq.type,s.status].join(' ').toLowerCase().includes(q)&&(!f||s.status===f);
+
+  // Build latest status per equipment
+  const latestMap = {};
+  statusData.forEach(s => { latestMap[s.num] = s; }); // sorted asc so last = latest
+  let d = Object.values(latestMap).filter(s => {
+    const eq = equipMap[s.num]||{};
+    return [s.num,eq.type,s.status].join(' ').toLowerCase().includes(q) && (!f||s.status.includes(f));
   });
+
   const st=ss.st;
   if(st.c>=0){ d.sort((a,b)=>{
     const ea=equipMap[a.num]||{},eb=equipMap[b.num]||{};
@@ -404,19 +447,50 @@ window.renderStatus = function() {
     const [av,bv]=cols[st.c];
     return st.a?av.localeCompare(bv):bv.localeCompare(av);
   }); }
+
   document.getElementById('st-rc').textContent = d.length+' records';
   const tb = document.getElementById('st-tb');
   if(!d.length){tb.innerHTML='<tr><td colspan="5"><div class="empty">NO RECORDS FOUND</div></td></tr>';return;}
+
   const cls={'Good':'tg','Damaged':'td2','Under Repair':'tr2','For Disposal':'tf','Missing':'tm'};
   tb.innerHTML = d.map(s=>{
     const eq=equipMap[s.num]||{};
-    return `<tr>
+    const tagClass = Object.keys(cls).find(k => s.status.includes(k)) ? cls[Object.keys(cls).find(k=>s.status.includes(k))] : 'tm';
+    return `<tr class="clickable" onclick="showEquipDetail('${s.num}')">
       <td><span class="en">${s.num||'—'}</span></td>
       <td>${eq.type||'—'}</td><td>${eq.brand||'—'}</td>
-      <td><span class="tag ${cls[s.status]||'tm'}">${s.status}</span></td>
+      <td><span class="tag ${tagClass}">${s.status}</span></td>
       <td>${fdate(s.date)}</td>
     </tr>`;
   }).join('');
+};
+
+// ── EQUIPMENT DETAIL POPUP ────────────────────────────────────
+window.showEquipDetail = function(num) {
+  const eq      = equipMap[num] || {};
+  const history = statusData.filter(s => s.num === num).sort((a,b) => new Date(b.date)-new Date(a.date));
+  const cls     = {'Good':'tg','Damaged':'td2','Under Repair':'tr2','For Disposal':'tf','Missing':'tm'};
+
+  const getTagClass = (status) => {
+    const k = Object.keys(cls).find(k => status.includes(k));
+    return k ? cls[k] : 'tm';
+  };
+
+  document.getElementById('dm-title').textContent = `${num} — Details`;
+  document.getElementById('dm-content').innerHTML = `
+    <div class="dinfo-row"><span class="dinfo-label">Equipment No.</span><span class="dinfo-val" style="font-family:var(--fm);color:var(--accent)">${num}</span></div>
+    <div class="dinfo-row"><span class="dinfo-label">Type</span><span class="dinfo-val">${eq.type||'—'}</span></div>
+    <div class="dinfo-row"><span class="dinfo-label">Brand</span><span class="dinfo-val">${eq.brand||'—'}</span></div>
+    <div class="dinfo-row"><span class="dinfo-label">Date of Log</span><span class="dinfo-val">${fdate(eq.dateLog)}</span></div>
+    <div class="dinfo-row"><span class="dinfo-label">Date Uploaded</span><span class="dinfo-val">${fdate(eq.dateUpload)}</span></div>
+    <div class="dhistory-title">Status History</div>
+    ${history.length ? history.map(h=>`
+      <div class="history-item">
+        <span class="tag ${getTagClass(h.status)}">${h.status}</span>
+        <span class="history-date">${fdate(h.date)}</span>
+      </div>`).join('') : '<div style="font-family:var(--fm);font-size:.78rem;color:var(--muted);text-align:center;padding:1rem">No status history</div>'}
+  `;
+  document.getElementById('detail-modal').classList.add('show');
 };
 
 window.sort = function(key,col){
@@ -463,6 +537,17 @@ window.exportExcel = function(type) {
 };
 
 function today(){ return new Date().toISOString().split('T')[0]; }
+
+// Wire modal close
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('dm-close').addEventListener('click', () => {
+    document.getElementById('detail-modal').classList.remove('show');
+  });
+  document.getElementById('detail-modal').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('detail-modal'))
+      document.getElementById('detail-modal').classList.remove('show');
+  });
+});
 </script>
 </body>
 </html>

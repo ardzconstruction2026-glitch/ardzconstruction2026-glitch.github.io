@@ -234,7 +234,7 @@
   <!-- TAB 3: EQUIPMENT STATUS -->
   <div id="t3" class="tc">
     <div class="card">
-      <div class="ctitle">Update Equipment Status</div>
+      <div class="ctitle">Log Equipment Status</div>
       <div class="fg">
         <div class="fi">
           <label>Equipment Number</label>
@@ -246,11 +246,16 @@
           <select id="s-stat">
             <option value="">-- Select Status --</option>
             <option>Good</option><option>Damaged</option>
-            <option>Under Repair</option><option>For Disposal</option><option>Missing</option>
+            <option>Under Repair</option><option>For Disposal</option>
+            <option>Missing</option><option>Returned</option>
           </select>
         </div>
+        <div class="fi">
+          <label>Date</label>
+          <input type="date" id="s-date"/>
+        </div>
       </div>
-      <div class="fa"><button class="bp" onclick="submitStatus()">Update Status</button></div>
+      <div class="fa"><button class="bp" onclick="submitStatus()">Log Status</button></div>
     </div>
   </div>
 </div>
@@ -377,6 +382,7 @@ function setToday() {
   const t = new Date().toISOString().split('T')[0];
   document.getElementById('e-date').value = t;
   document.getElementById('b-date').value = t;
+  document.getElementById('s-date').value = t;
 }
 
 window.switchTab = function(id, btn) {
@@ -404,7 +410,9 @@ function v(id) { return document.getElementById(id).value.trim(); }
 function getLatestStatus(num) {
   const matches = allStatus.filter(s => s.num === num);
   if (!matches.length) return null;
-  return matches[matches.length - 1].status;
+  // Sort by date descending, return most recent
+  matches.sort((a,b) => new Date(b.date) - new Date(a.date));
+  return matches[0].status;
 }
 
 function isCurrentlyBorrowed(num) {
@@ -440,9 +448,7 @@ window.submitEquip = async function() {
       const eRef = await addDoc(collection(db,'equipment'), { num, type, brand, dateLog, dateUpload });
       await setDoc(doc(db,'statusLog', num), { num, status, date: dateUpload });
       allEquip.push({ id: eRef.id, num, type, brand, dateLog, dateUpload });
-      const existing = allStatus.findIndex(s => s.num === num);
-      if (existing >= 0) allStatus[existing].status = status;
-      else allStatus.push({ num, status, date: dateUpload });
+      allStatus.push({ num, status, date: dateUpload });
       updateStats();
       toast('Equipment logged!');
     } else {
@@ -626,7 +632,9 @@ function renderBorrows() {
 // ── STATUS ────────────────────────────────────────────────────
 window.submitStatus = async function() {
   setFieldErr('s-num-err','');
-  const num = v('s-num'), status = v('s-stat');
+  const num    = v('s-num');
+  let   status = v('s-stat');
+  const date   = v('s-date') || new Date().toISOString().split('T')[0];
   if (!num||!status) { toast('Fill all fields.',true); return; }
 
   const exists = allEquip.some(e => e.num.toLowerCase() === num.toLowerCase());
@@ -637,17 +645,25 @@ window.submitStatus = async function() {
     toast('Cannot update — equipment is borrowed!',true); return;
   }
 
+  // If Returned, concatenate with previous status
+  if (status === 'Returned') {
+    const prevStatus = getLatestStatus(num);
+    if (prevStatus && prevStatus !== 'Returned') {
+      status = 'Returned-' + prevStatus;
+    }
+  }
+
   try {
-    const date = new Date().toISOString();
-    await setDoc(doc(db,'statusLog', num), { num, status, date });
-    const idx = allStatus.findIndex(s => s.num === num);
-    if (idx >= 0) allStatus[idx] = { num, status, date };
-    else allStatus.push({ num, status, date });
+    const logDate = new Date(date).toISOString();
+    // Log as new entry instead of overwriting
+    await addDoc(collection(db,'statusLog'), { num, status, date: logDate });
+    allStatus.push({ num, status, date: logDate });
     updateStats();
-    toast(`Status updated: ${num} → ${status}`);
+    toast(`Status logged: ${num} → ${status}`);
     document.getElementById('s-num').value = '';
     document.getElementById('s-stat').value = '';
-  } catch(e) { toast('Error updating status.',true); }
+    document.getElementById('s-date').value = new Date().toISOString().split('T')[0];
+  } catch(e) { toast('Error logging status.',true); console.error(e); }
 };
 </script>
 </body>
