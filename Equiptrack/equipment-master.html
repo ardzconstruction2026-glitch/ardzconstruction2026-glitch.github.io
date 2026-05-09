@@ -105,6 +105,21 @@
   .spin{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent2);border-radius:50%;animation:spin .7s linear infinite;}
   .ltxt{font-family:var(--fm);font-size:.8rem;color:var(--accent2);letter-spacing:2px;}
   @media(max-width:600px){header{padding:0 1rem;}.tb{padding:12px 14px;font-size:.8rem;}.tc{padding:1rem;}}
+  .btn-purge{font-family:var(--fh);font-size:.85rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+    background:rgba(255,59,92,.12);border:1px solid rgba(255,59,92,.4);color:var(--danger);
+    padding:7px 18px;border-radius:var(--r);cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:8px;}
+  .btn-purge:hover{background:rgba(255,59,92,.25);}
+  .purge-section{background:rgba(255,59,92,.05);border:1px solid rgba(255,59,92,.2);border-radius:8px;
+    padding:1.5rem 2rem;margin:2rem auto;max-width:1100px;display:flex;align-items:center;
+    justify-content:space-between;flex-wrap:wrap;gap:1rem;}
+  .purge-info{font-family:var(--fm);font-size:.78rem;color:var(--muted);letter-spacing:.5px;}
+  .purge-info strong{color:var(--danger);}
+  .purge-modal{background:var(--surface);border:1px solid rgba(255,59,92,.4);border-radius:10px;
+    padding:2rem;max-width:440px;width:90%;text-align:center;}
+  .purge-confirm-input{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r);
+    color:var(--text);padding:10px 14px;font-family:var(--fm);font-size:.9rem;outline:none;
+    width:100%;margin-bottom:1rem;text-align:center;letter-spacing:2px;}
+  .purge-confirm-input:focus{border-color:var(--danger);}
 </style>
 </head>
 <body>
@@ -120,6 +135,24 @@
       <button class="btn-confirm" id="btn-confirm">Delete</button>
       <button class="btn-cancel2" id="btn-cancel-modal">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- PURGE MODAL -->
+<div class="modal-bg" id="purge-modal">
+  <div class="purge-modal">
+    <div class="modal-icon">🗑️</div>
+    <div class="modal-title" style="color:var(--danger);font-family:var(--fh);font-size:1.1rem;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:.75rem;">Purge All Data</div>
+    <div style="font-family:var(--fb);font-size:.88rem;color:var(--muted);margin-bottom:1.2rem;line-height:1.6;">
+      This will permanently delete <strong style="color:var(--danger)">ALL</strong> records from Equipment, Borrow Log, and Status Log. This action <strong style="color:var(--danger)">cannot be undone</strong>.
+    </div>
+    <div style="font-family:var(--fm);font-size:.75rem;color:var(--muted);margin-bottom:.5rem;letter-spacing:1px;">Type <strong style="color:var(--danger)">PURGE</strong> to confirm</div>
+    <input class="purge-confirm-input" id="purge-input" placeholder="PURGE" autocomplete="off"/>
+    <div class="modal-actions">
+      <button class="btn-confirm" id="btn-purge-confirm">Purge All</button>
+      <button class="btn-cancel2" id="btn-purge-cancel">Cancel</button>
+    </div>
+    <div id="purge-progress" style="font-family:var(--fm);font-size:.75rem;color:var(--warn);margin-top:1rem;min-height:1rem;letter-spacing:1px;"></div>
   </div>
 </div>
 
@@ -151,6 +184,14 @@
     <button class="tb" onclick="switchTab('t2',this)">Borrow Log</button>
     <button class="tb" onclick="switchTab('t3',this)">Status Log</button>
   </nav>
+
+  <!-- PURGE SECTION -->
+  <div class="purge-section">
+    <div class="purge-info">
+      <strong>⚠ Danger Zone</strong> — Purge All Data permanently deletes every record in Equipment, Borrow Log and Status Log.
+    </div>
+    <button class="btn-purge" id="btn-open-purge">🗑 Purge All Data</button>
+  </div>
 
   <!-- TAB 1 -->
   <div id="t1" class="tc active">
@@ -507,6 +548,53 @@ document.getElementById('btn-confirm').addEventListener('click', () => {
 document.getElementById('btn-cancel-modal').addEventListener('click', () => {
   document.getElementById('modal').classList.remove('show');
   pendingDelete = null;
+});
+
+// ── PURGE ─────────────────────────────────────────────────────
+document.getElementById('btn-open-purge').addEventListener('click', () => {
+  document.getElementById('purge-input').value = '';
+  document.getElementById('purge-progress').textContent = '';
+  document.getElementById('purge-modal').classList.add('show');
+});
+
+document.getElementById('btn-purge-cancel').addEventListener('click', () => {
+  document.getElementById('purge-modal').classList.remove('show');
+});
+
+document.getElementById('btn-purge-confirm').addEventListener('click', async () => {
+  const input = document.getElementById('purge-input').value.trim();
+  if (input !== 'PURGE') {
+    document.getElementById('purge-progress').textContent = 'Please type PURGE to confirm.';
+    return;
+  }
+  const progress = document.getElementById('purge-progress');
+  const btn      = document.getElementById('btn-purge-confirm');
+  btn.disabled   = true;
+  btn.textContent = 'Purging...';
+
+  const collections = ['equipment','borrowLog','statusLog'];
+  let total = 0;
+
+  for (const col of collections) {
+    try {
+      progress.textContent = `Purging ${col}...`;
+      const snap = await getDocs(collection(db, col));
+      for (const d of snap.docs) {
+        await deleteDoc(doc(db, col, d.id));
+        total++;
+      }
+    } catch(e) {
+      progress.textContent = `Error purging ${col}: ${e.message}`;
+      btn.disabled = false; btn.textContent = 'Purge All';
+      return;
+    }
+  }
+
+  document.getElementById('purge-modal').classList.remove('show');
+  equipData=[]; borrowData=[]; statusData=[];
+  renderEquip(); renderBorrow(); renderStatus();
+  toast(`Purge complete — ${total} records deleted.`);
+  btn.disabled = false; btn.textContent = 'Purge All';
 });
 </script>
 </body>
