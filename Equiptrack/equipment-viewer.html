@@ -431,9 +431,13 @@ window.renderStatus = function() {
   const q = document.getElementById('st-s').value.toLowerCase();
   const f = document.getElementById('st-f').value;
 
-  // Build latest status per equipment
+  // Build latest status per equipment — compare dates properly
   const latestMap = {};
-  statusData.forEach(s => { latestMap[s.num] = s; }); // sorted asc so last = latest
+  statusData.forEach(s => {
+    if (!latestMap[s.num] || new Date(s.date) > new Date(latestMap[s.num].date)) {
+      latestMap[s.num] = s;
+    }
+  });
   let d = Object.values(latestMap).filter(s => {
     const eq = equipMap[s.num]||{};
     return [s.num,eq.type,s.status].join(' ').toLowerCase().includes(q) && (!f||s.status.includes(f));
